@@ -1,4 +1,4 @@
-# MiniMap1
+# MiniMap
 
 # City Locator and Route Mapping
 
