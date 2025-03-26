@@ -1,5 +1,4 @@
 # MiniMap
-
 # City Locator and Route Mapping
 
 This project allows you to input two cities, get their geographical coordinates, and display the shortest route between them using OpenRouteService API. It leverages the `geopy` library for city geocoding and `folium` for visualizing the route on a map.
