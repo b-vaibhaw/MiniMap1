@@ -1,75 +1,88 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_from_directory
 import openrouteservice
-import folium
 from geopy.geocoders import Nominatim
+from config import OPENROUTESERVICE_API_KEY
+import folium
 import os
-from io import BytesIO
-import config
 
 app = Flask(__name__)
 
-# Initialize the geolocator and OpenRouteService client
+# Initialize the geolocator
 geolocator = Nominatim(user_agent="city_locator")
-client = openrouteservice.Client(key=config.OPENROUTESERVICE_API_KEY)
+
+# Initialize OpenRouteService client with API Key from config
+client = openrouteservice.Client(key=OPENROUTESERVICE_API_KEY)
+
+# Folder for saving maps
+MAP_FOLDER = 'static/maps'
+if not os.path.exists(MAP_FOLDER):
+    os.makedirs(MAP_FOLDER)
 
 # Function to fetch suggestions for a city name
 def geocode_city_suggestions(query):
     locations = geolocator.geocode(query, exactly_one=False, timeout=10)
     if locations:
-        suggestions = []
-        for location in locations:
-            suggestions.append(location)
+        suggestions = [location for location in locations]
         return suggestions
-    return []
+    else:
+        return []
 
 # Function to get the route from OpenRouteService API
 def get_shortest_path(start_lat, start_lon, end_lat, end_lon):
-    start_coords = (start_lon, start_lat)
+    start_coords = (start_lon, start_lat)  # OpenRouteService expects (lon, lat)
     end_coords = (end_lon, end_lat)
     routes = client.directions(
         coordinates=[start_coords, end_coords],
         profile='driving-car',
         format='geojson'
     )
-    route_coords = routes['features'][0]['geometry']['coordinates']
+
     route_map = folium.Map(location=[start_lat, start_lon], zoom_start=12)
+    route_coords = routes['features'][0]['geometry']['coordinates']
+
     folium.PolyLine(locations=[(lat, lon) for lon, lat in route_coords], color='blue', weight=3, opacity=1).add_to(route_map)
     folium.Marker([start_lat, start_lon], popup="Start City", icon=folium.Icon(color='green')).add_to(route_map)
     folium.Marker([end_lat, end_lon], popup="Destination City", icon=folium.Icon(color='red')).add_to(route_map)
-    return route_map
 
-# Route for home page
-@app.route('/')
+    # Save map to a file
+    map_filename = 'route_map.html'
+    map_path = os.path.join(MAP_FOLDER, map_filename)
+    route_map.save(map_path)
+
+    return map_filename
+
+@app.route('/', methods=['GET', 'POST'])
 def home():
+    if request.method == 'POST':
+        start_city = request.form.get('start_city')
+        end_city = request.form.get('end_city')
+
+        # Fetch suggestions for both cities
+        start_suggestions = geocode_city_suggestions(start_city)
+        end_suggestions = geocode_city_suggestions(end_city)
+
+        if start_suggestions and end_suggestions:
+            # Ask user to select a city from suggestions
+            start_lat, start_lon = start_suggestions[0].latitude, start_suggestions[0].longitude
+            end_lat, end_lon = end_suggestions[0].latitude, end_suggestions[0].longitude
+
+            # Generate route map
+            map_filename = get_shortest_path(start_lat, start_lon, end_lat, end_lon)
+
+            # Return the results to the template
+            return render_template('index.html', 
+                                   start_suggestions=start_suggestions, 
+                                   end_suggestions=end_suggestions, 
+                                   map_filename=map_filename)
+        else:
+            error_message = "No suggestions found for the cities."
+            return render_template('index.html', error_message=error_message)
+
     return render_template('index.html')
 
-# Route to get the map based on user input
-@app.route('/get_route', methods=['POST'])
-def get_route():
-    start_city = request.form.get('start_city')
-    end_city = request.form.get('end_city')
+@app.route('/download_map/<filename>')
+def download_map(filename):
+    return send_from_directory(MAP_FOLDER, filename)
 
-    start_locations = geocode_city_suggestions(start_city)
-    end_locations = geocode_city_suggestions(end_city)
-
-    if start_locations and end_locations:
-        start_lat, start_lon = start_locations[0].latitude, start_locations[0].longitude
-        end_lat, end_lon = end_locations[0].latitude, end_locations[0].longitude
-        route_map = get_shortest_path(start_lat, start_lon, end_lat, end_lon)
-
-        # Save the map as an HTML file
-        map_filename = "route_map.html"
-        route_map.save(map_filename)
-
-        return render_template('map.html', map_file=map_filename)
-    else:
-        return "Could not find cities. Please try again."
-
-# Route to download the map
-@app.route('/download_map')
-def download_map():
-    map_filename = "route_map.html"
-    return send_file(map_filename, as_attachment=True)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
