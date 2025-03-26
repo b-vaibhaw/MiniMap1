@@ -1,5 +1,0 @@
-openrouteservice
-folium
-geopy
-gunicorn
-Flask
