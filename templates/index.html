@@ -3,95 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>City Locator and Route Generator</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f9;
-        }
-        .container {
-            width: 80%;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            font-weight: bold;
-        }
-        .form-group select {
-            width: 100%;
-            padding: 10px;
-            font-size: 16px;
-        }
-        .map-container {
-            margin-top: 30px;
-            text-align: center;
-        }
-        iframe {
-            width: 100%;
-            height: 500px;
-        }
-        .error-message {
-            color: red;
-        }
-        .btn {
-            padding: 10px 20px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        .btn:hover {
-            background-color: #45a049;
-        }
-    </style>
+    <title>MiniMap - Route Optimizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <script src="{{ url_for('static', filename='js/gps.js') }}" defer></script>
 </head>
 <body>
-    <div class="container">
-        <h1>City Locator and Route Generator</h1>
-        <form method="POST">
-            <div class="form-group">
-                <label for="start_city">Enter the starting city:</label>
-                <input type="text" id="start_city" name="start_city" placeholder="Enter starting city" required>
-            </div>
-            <div class="form-group">
-                <label for="end_city">Enter the destination city:</label>
-                <input type="text" id="end_city" name="end_city" placeholder="Enter destination city" required>
-            </div>
-            <button type="submit" class="btn">Generate Route</button>
-        </form>
+    <h1>🚀 MiniMap Route Optimizer</h1>
+    
+    <form id="routeForm">
+        <label>
+            <input type="checkbox" id="useGPS"> Use Current GPS Location
+        </label>
+        
+        <label>Start Location:</label>
+        <input type="text" id="startLocation" placeholder="Enter city or address" required>
 
-        {% if error_message %}
-            <div class="error-message">{{ error_message }}</div>
-        {% endif %}
+        <label>Destination:</label>
+        <input type="text" id="endLocation" placeholder="Enter destination" required>
 
-        {% if start_suggestions and end_suggestions %}
-            <h2>Select a city from the suggestions:</h2>
-            <h3>Starting City Suggestions:</h3>
-            <ul>
-                {% for suggestion in start_suggestions %}
-                    <li>{{ suggestion.address }}</li>
-                {% endfor %}
-            </ul>
+        <label>Select Optimization Model:</label>
+        <select id="modelSelection">
+            <option value="astar">A* Algorithm</option>
+            <option value="qaoa">Quantum Optimization (QAOA)</option>
+            <option value="traffic-aware">Traffic-Aware Routing</option>
+        </select>
 
-            <h3>Destination City Suggestions:</h3>
-            <ul>
-                {% for suggestion in end_suggestions %}
-                    <li>{{ suggestion.address }}</li>
-                {% endfor %}
-            </ul>
+        <button type="submit">Generate Route</button>
+    </form>
 
-            <h3>Generated Route Map:</h3>
-            <div class="map-container">
-                <iframe src="{{ url_for('static', filename='maps/' + map_filename) }}" frameborder="0"></iframe>
-                <br>
-                <a href="{{ url_for('download_map', filename=map_filename) }}" class="btn">Download the Map</a>
-            </div>
-        {% endif %}
+    <div id="mapContainer">
+        <iframe id="mapFrame" src="" width="600" height="400"></iframe>
     </div>
+
+    <script>
+        document.getElementById("routeForm").addEventListener("submit", function(event) {
+            event.preventDefault();
+
+            let useGPS = document.getElementById("useGPS").checked;
+            let startLocation = document.getElementById("startLocation").value;
+            let endLocation = document.getElementById("endLocation").value;
+            let model = document.getElementById("modelSelection").value;
+
+            if (useGPS) {
+                fetch("/get_gps_location")
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.lat && data.lon) {
+                            startLocation = `${data.lat},${data.lon}`;
+                        }
+                        sendRouteRequest(startLocation, endLocation, model);
+                    });
+            } else {
+                sendRouteRequest(startLocation, endLocation, model);
+            }
+        });
+
+        function sendRouteRequest(start, end, model) {
+            fetch("/route", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ start_lat: start.split(',')[0], start_lon: start.split(',')[1], 
+                                       end_lat: end.split(',')[0], end_lon: end.split(',')[1], 
+                                       model: model })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.map_url) {
+                    document.getElementById("mapFrame").src = data.map_url;
+                } else {
+                    alert("Error generating route");
+                }
+            });
+        }
+    </script>
 </body>
 </html>
