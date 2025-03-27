@@ -1,10 +1,7 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 from model import get_optimized_route, optimize_route_with_astar
 
 app = Flask(__name__)
-
-# Store last route to serve the map dynamically
-latest_route = None
 
 @app.route('/')
 def home():
@@ -12,7 +9,6 @@ def home():
 
 @app.route('/route', methods=['POST'])
 def fetch_route():
-    global latest_route
     data = request.json
     start_lat, start_lon = float(data['start_lat']), float(data['start_lon'])
     end_lat, end_lon = float(data['end_lat']), float(data['end_lon'])
@@ -27,22 +23,19 @@ def fetch_route():
     if model == 'astar':
         optimized_coords = optimize_route_with_astar(route_coords)
     elif model == 'qaoa':
-        optimized_coords = route_coords  # Placeholder for quantum model
+        optimized_coords = route_coords  # To be replaced with actual QAOA optimization
     elif model == 'traffic-aware':
         optimized_coords = route_coords  # Future enhancement
 
-    # Save optimized route map
-    route_map.save("templates/map.html")
-    latest_route = "map.html"
+    # Save optimized route map in static folder
+    map_path = "static/map.html"
+    route_map.save(map_path)
 
     return jsonify({'message': 'Route generated successfully', 'map_url': '/map'})
 
 @app.route('/map')
 def show_map():
-    global latest_route
-    if latest_route:
-        return render_template(latest_route)
-    return "No route available", 404
+    return send_file("static/map.html")
 
 if __name__ == '__main__':
     app.run(debug=True)
