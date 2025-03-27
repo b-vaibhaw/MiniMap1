@@ -1,88 +1,48 @@
-from flask import Flask, render_template, request, send_from_directory
-import openrouteservice
-from geopy.geocoders import Nominatim
-from config import OPENROUTESERVICE_API_KEY
-import folium
-import os
+from flask import Flask, render_template, request, jsonify
+from model import get_optimized_route, optimize_route_with_astar
 
 app = Flask(__name__)
 
-# Initialize the geolocator
-geolocator = Nominatim(user_agent="city_locator")
+# Store last route to serve the map dynamically
+latest_route = None
 
-# Initialize OpenRouteService client with API Key from config
-client = openrouteservice.Client(key=OPENROUTESERVICE_API_KEY)
-
-# Folder for saving maps
-MAP_FOLDER = 'static/maps'
-if not os.path.exists(MAP_FOLDER):
-    os.makedirs(MAP_FOLDER)
-
-# Function to fetch suggestions for a city name
-def geocode_city_suggestions(query):
-    locations = geolocator.geocode(query, exactly_one=False, timeout=10)
-    if locations:
-        suggestions = [location for location in locations]
-        return suggestions
-    else:
-        return []
-
-# Function to get the route from OpenRouteService API
-def get_shortest_path(start_lat, start_lon, end_lat, end_lon):
-    start_coords = (start_lon, start_lat)  # OpenRouteService expects (lon, lat)
-    end_coords = (end_lon, end_lat)
-    routes = client.directions(
-        coordinates=[start_coords, end_coords],
-        profile='driving-car',
-        format='geojson'
-    )
-
-    route_map = folium.Map(location=[start_lat, start_lon], zoom_start=12)
-    route_coords = routes['features'][0]['geometry']['coordinates']
-
-    folium.PolyLine(locations=[(lat, lon) for lon, lat in route_coords], color='blue', weight=3, opacity=1).add_to(route_map)
-    folium.Marker([start_lat, start_lon], popup="Start City", icon=folium.Icon(color='green')).add_to(route_map)
-    folium.Marker([end_lat, end_lon], popup="Destination City", icon=folium.Icon(color='red')).add_to(route_map)
-
-    # Save map to a file
-    map_filename = 'route_map.html'
-    map_path = os.path.join(MAP_FOLDER, map_filename)
-    route_map.save(map_path)
-
-    return map_filename
-
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/')
 def home():
-    if request.method == 'POST':
-        start_city = request.form.get('start_city')
-        end_city = request.form.get('end_city')
-
-        # Fetch suggestions for both cities
-        start_suggestions = geocode_city_suggestions(start_city)
-        end_suggestions = geocode_city_suggestions(end_city)
-
-        if start_suggestions and end_suggestions:
-            # Ask user to select a city from suggestions
-            start_lat, start_lon = start_suggestions[0].latitude, start_suggestions[0].longitude
-            end_lat, end_lon = end_suggestions[0].latitude, end_suggestions[0].longitude
-
-            # Generate route map
-            map_filename = get_shortest_path(start_lat, start_lon, end_lat, end_lon)
-
-            # Return the results to the template
-            return render_template('index.html', 
-                                   start_suggestions=start_suggestions, 
-                                   end_suggestions=end_suggestions, 
-                                   map_filename=map_filename)
-        else:
-            error_message = "No suggestions found for the cities."
-            return render_template('index.html', error_message=error_message)
-
     return render_template('index.html')
 
-@app.route('/download_map/<filename>')
-def download_map(filename):
-    return send_from_directory(MAP_FOLDER, filename)
+@app.route('/route', methods=['POST'])
+def fetch_route():
+    global latest_route
+    data = request.json
+    start_lat, start_lon = float(data['start_lat']), float(data['start_lon'])
+    end_lat, end_lon = float(data['end_lat']), float(data['end_lon'])
+    model = data['model']
+
+    route_map, route_coords = get_optimized_route(start_lat, start_lon, end_lat, end_lon)
+    
+    if not route_map:
+        return jsonify({'error': 'Failed to generate route'}), 500
+
+    # Apply model-based optimization
+    if model == 'astar':
+        optimized_coords = optimize_route_with_astar(route_coords)
+    elif model == 'qaoa':
+        optimized_coords = route_coords  # Placeholder for quantum model
+    elif model == 'traffic-aware':
+        optimized_coords = route_coords  # Future enhancement
+
+    # Save optimized route map
+    route_map.save("templates/map.html")
+    latest_route = "map.html"
+
+    return jsonify({'message': 'Route generated successfully', 'map_url': '/map'})
+
+@app.route('/map')
+def show_map():
+    global latest_route
+    if latest_route:
+        return render_template(latest_route)
+    return "No route available", 404
 
 if __name__ == '__main__':
     app.run(debug=True)
