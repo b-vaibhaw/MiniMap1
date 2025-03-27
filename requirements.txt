@@ -1,8 +1,10 @@
 Flask
-requests
-folium
 openrouteservice
-geopy
-networkx
+folium
 numpy
-gunicorn
+networkx
+requests
+geopy
+scipy
+dwave-system  # Required for LeapHybridSampler
+dwave-cloud-client
