@@ -1,0 +1,7 @@
+Flask
+requests
+folium
+openrouteservice
+geopy
+networkx
+numpy
