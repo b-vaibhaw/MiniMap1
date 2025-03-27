@@ -6,5 +6,7 @@ networkx
 requests
 geopy
 scipy
-dwave-system  # Required for LeapHybridSampler
+dwave-system
 dwave-cloud-client
+gunicorn
+python-dotenv
