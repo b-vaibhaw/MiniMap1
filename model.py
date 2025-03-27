@@ -1,3 +1,4 @@
+import os
 import openrouteservice
 import folium
 import time
@@ -11,8 +12,8 @@ from scipy.optimize import minimize
 from dwave.system import LeapHybridSampler  # Alternative to Qiskit
 
 # API Keys
-ORS_API_KEY = '5b3ce3597851110001cf624803070ef73fab46049a4367a57979c831'
-WEATHER_API_KEY = '08208abad73b45982006305407922e0f'
+ORS_API_KEY = os.getenv("ORS_API_KEY")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 # Initialize OpenRouteService client
 client = openrouteservice.Client(key=ORS_API_KEY)
