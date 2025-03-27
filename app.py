@@ -1,5 +1,13 @@
 from flask import Flask, render_template, request, jsonify, send_file
 from model import get_optimized_route, optimize_route_with_astar
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Load environment variables
+
+ORS_API_KEY = os.getenv("ORS_API_KEY")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
+
 
 app = Flask(__name__)
 
