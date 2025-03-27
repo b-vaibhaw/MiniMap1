@@ -103,12 +103,6 @@ def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
     start_coords = (start_lon, start_lat)
     end_coords = (end_lon, end_lat)
 
-    start_weather = get_weather(start_lat, start_lon) or "Unknown"
-    end_weather = get_weather(end_lat, end_lon) or "Unknown"
-
-    if is_bad_weather(start_weather) or is_bad_weather(end_weather):
-        logging.warning("⚠️ Bad weather detected! Rerouting...")
-
     try:
         routes = client.directions(
             coordinates=[start_coords, end_coords],
@@ -116,37 +110,41 @@ def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
             format='geojson'
         )
     except openrouteservice.exceptions.ApiError as e:
-        logging.error(f"⚠️ Route generation failed: {e}")
+        logging.error(f"⚠️ Route API error: {e}")
         return None, None
 
-    if routes and 'features' in routes and len(routes['features']) > 0:
-        route_map = folium.Map(location=[start_lat, start_lon], zoom_start=12)
-        route_coords = routes['features'][0]['geometry']['coordinates']
-
-        folium.PolyLine(locations=[(lat, lon) for lon, lat in route_coords], color='blue', weight=3).add_to(route_map)
-        folium.Marker([start_lat, start_lon], popup="Start", icon=folium.Icon(color='green')).add_to(route_map)
-        folium.Marker([end_lat, end_lon], popup="Destination", icon=folium.Icon(color='red')).add_to(route_map)
-
-        return route_map, route_coords
-    else:
-        logging.warning("⚠️ Could not generate a valid route.")
+    if not routes.get('features'):
+        logging.warning("⚠️ No route found.")
         return None, None
+
+    route_map = folium.Map(location=[start_lat, start_lon], zoom_start=12)
+    route_coords = routes['features'][0]['geometry']['coordinates']
+
+    folium.PolyLine(locations=[(lat, lon) for lon, lat in route_coords], color='blue', weight=3).add_to(route_map)
+    folium.Marker([start_lat, start_lon], popup="Start", icon=folium.Icon(color='green')).add_to(route_map)
+    folium.Marker([end_lat, end_lon], popup="Destination", icon=folium.Icon(color='red')).add_to(route_map)
+
+    return route_map, route_coords
+
 
 # Quantum optimization without Qiskit
 def optimize_route_with_qaoa(route_coords):
     num_nodes = len(route_coords)
-    Q = np.zeros((num_nodes, num_nodes))
+    if num_nodes < 2:
+        return route_coords  # No need to optimize small routes
 
+    Q = {}
     for i in range(num_nodes - 1):
         dist = np.linalg.norm(np.array(route_coords[i]) - np.array(route_coords[i + 1]))
-        Q[i, i + 1] = dist
+        Q[(i, i+1)] = dist
 
-    # Solve QUBO using D-Wave's Leap Hybrid Solver
     sampler = LeapHybridSampler()
     response = sampler.sample_qubo(Q)
-    best_route = [route_coords[i] for i in response.first.sample if response.first.sample[i] == 1]
 
-    return best_route if best_route else route_coords  # Fallback to original route if QAOA fails
+    best_route = [route_coords[i] for i in response.first.sample if response.first.sample.get(i, 0) == 1]
+
+    return best_route if best_route else route_coords
+
 
 # Main function
 def main():
@@ -155,10 +153,7 @@ def main():
     use_gps = input("Use GPS? (Y/N): ").strip().lower()
     if use_gps == 'y':
         location = get_gps_location()
-        if location:
-            start_lat, start_lon = location
-        else:
-            start_lat, start_lon = get_user_city_input("Enter start city: ")
+        start_lat, start_lon = location if location else get_user_city_input("Enter start city: ")
     else:
         start_lat, start_lon = get_user_city_input("Enter start city: ")
 
@@ -167,8 +162,11 @@ def main():
     route_map, route_coords = get_optimized_route(start_lat, start_lon, end_lat, end_lon)
     if route_map:
         optimized_coords = optimize_route_with_qaoa(route_coords)
-        route_map.save("route_map.html")
-        logging.info("✅ Route saved as 'route_map.html'.")
+        route_map.save("templates/map.html")  # Save inside `templates` for Flask
+        logging.info("✅ Route saved as 'map.html'.")
+    else:
+        logging.error("❌ No valid route generated. Exiting.")
+
 
 if __name__ == "__main__":
     main()
