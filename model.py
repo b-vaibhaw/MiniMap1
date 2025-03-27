@@ -29,15 +29,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # Function to fetch real-time weather data
 def get_weather(lat, lon):
-    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}"
+    url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&units=metric&appid={WEATHER_API_KEY}"
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
-        return data['weather'][0]['main']
+        weather_main = data['weather'][0]['main']
+        temp = data['main']['temp']  # Get temperature
+        return f"{weather_main} ({temp}°C)"
     except requests.RequestException as e:
         logging.warning(f"Weather API error: {e}")
         return None
+
 
 # Function to check bad weather
 def is_bad_weather(weather):
@@ -45,22 +48,24 @@ def is_bad_weather(weather):
 
 # Function to get GPS location
 def get_gps_location():
-    logging.info("📡 Trying to get GPS location from browser...")
+    logging.info("📡 Fetching GPS location...")
     try:
-        response = requests.get(FLASK_BACKEND_URL)
+        response = requests.get(FLASK_BACKEND_URL, timeout=5)
+        response.raise_for_status()
         data = response.json()
         if "lat" in data and "lon" in data:
-            return data["lat"], data["lon"]
-    except requests.exceptions.RequestException as e:
-        logging.warning(f"⚠️ Error fetching GPS: {e}")
+            return float(data["lat"]), float(data["lon"])
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logging.warning(f"⚠️ GPS Error: {e}")
 
-    lat = input("Enter latitude manually: ")
-    lon = input("Enter longitude manually: ")
-    try:
-        return float(lat), float(lon)
-    except ValueError:
-        logging.error("❌ Invalid coordinates entered.")
-        return None
+    while True:
+        lat = input("Enter latitude manually: ")
+        lon = input("Enter longitude manually: ")
+        try:
+            return float(lat), float(lon)
+        except ValueError:
+            logging.error("❌ Invalid coordinates. Enter numeric values.")
+
 
 # Get city coordinates
 def get_user_city_input(prompt="Enter a city: "):
