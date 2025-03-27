@@ -18,6 +18,10 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 # Initialize OpenRouteService client
 client = openrouteservice.Client(key=ORS_API_KEY)
 
+# Check if keys are loaded properly (Optional for Debugging)
+if not ORS_API_KEY or not WEATHER_API_KEY:
+    raise ValueError("⚠️ Missing API Keys! Ensure .env is loaded or GitHub Secrets are set.")
+
 # Initialize geolocator
 geolocator = Nominatim(user_agent="city_locator")
 
