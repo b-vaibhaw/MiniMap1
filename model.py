@@ -4,8 +4,11 @@ import time
 import numpy as np
 import networkx as nx
 import requests
+import logging
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
+from scipy.optimize import minimize
+from dwave.system import LeapHybridSampler  # Alternative to Qiskit
 
 # API Keys
 ORS_API_KEY = '5b3ce3597851110001cf624803070ef73fab46049a4367a57979c831'
@@ -20,59 +23,59 @@ geolocator = Nominatim(user_agent="city_locator")
 # Flask API URL for browser GPS location
 FLASK_BACKEND_URL = "http://127.0.0.1:5000/get_gps_location"
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Function to fetch real-time weather data
 def get_weather(lat, lon):
     url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}"
-    response = requests.get(url)
-    data = response.json()
-    return data['weather'][0]['main'] if response.status_code == 200 else None
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data['weather'][0]['main']
+    except requests.RequestException as e:
+        logging.warning(f"Weather API error: {e}")
+        return None
 
-
-# Function to check if weather is bad
+# Function to check bad weather
 def is_bad_weather(weather):
     return weather in ['Rain', 'Thunderstorm', 'Snow', 'Extreme']
 
-
-# Function to get GPS location from the browser via Flask API
+# Function to get GPS location
 def get_gps_location():
-    print("📡 Trying to get GPS location from browser...")
+    logging.info("📡 Trying to get GPS location from browser...")
     try:
         response = requests.get(FLASK_BACKEND_URL)
         data = response.json()
         if "lat" in data and "lon" in data:
             return data["lat"], data["lon"]
-        else:
-            print("⚠️ GPS location not found. Switching to manual input.")
     except requests.exceptions.RequestException as e:
-        print(f"⚠️ Error connecting to GPS API: {e}")
+        logging.warning(f"⚠️ Error fetching GPS: {e}")
 
-    # Ask user to enter manually
     lat = input("Enter latitude manually: ")
     lon = input("Enter longitude manually: ")
     try:
         return float(lat), float(lon)
     except ValueError:
-        print("❌ Invalid coordinates. Try again.")
+        logging.error("❌ Invalid coordinates entered.")
         return None
 
-
-# Function to get user-selected city coordinates with multiple suggestions
-def get_user_city_input(prompt="Enter a city or address: "):
+# Get city coordinates
+def get_user_city_input(prompt="Enter a city: "):
     while True:
         city_name = input(prompt)
         try:
             locations = list(geolocator.geocode(city_name, exactly_one=False, timeout=10))
-
             if not locations:
-                print("❌ No matching location found. Try again.")
+                logging.warning("❌ No matching location found. Try again.")
                 continue
 
             print("\n🔍 Multiple locations found. Select the correct one:")
-            for i, loc in enumerate(locations[:5]):  # Show top 5 suggestions
+            for i, loc in enumerate(locations[:5]):
                 print(f"{i+1}. {loc.address}")
 
-            choice = input("Enter the number of the correct location (1-5) or type 'retry' to search again: ")
+            choice = input("Enter number (1-5) or 'retry': ")
             if choice.lower() == 'retry':
                 continue
 
@@ -80,19 +83,16 @@ def get_user_city_input(prompt="Enter a city or address: "):
                 choice_index = int(choice) - 1
                 if 0 <= choice_index < len(locations):
                     selected_location = locations[choice_index]
-                    print(f"\n✅ Selected: {selected_location.address}")
+                    logging.info(f"\n✅ Selected: {selected_location.address}")
                     return selected_location.latitude, selected_location.longitude
-                else:
-                    print("❌ Invalid choice. Try again.")
             except ValueError:
-                print("❌ Please enter a valid number.")
+                logging.error("❌ Invalid choice.")
 
         except GeocoderTimedOut:
-            print("⚠️ Geolocation service timed out. Try again.")
+            logging.warning("⚠️ Geolocation timed out. Try again.")
         time.sleep(1)
 
-
-# Function to get an optimized route
+# Get optimized route
 def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
     start_coords = (start_lon, start_lat)
     end_coords = (end_lon, end_lat)
@@ -101,7 +101,7 @@ def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
     end_weather = get_weather(end_lat, end_lon) or "Unknown"
 
     if is_bad_weather(start_weather) or is_bad_weather(end_weather):
-        print("⚠️ Bad weather detected! Rerouting to safer roads...")
+        logging.warning("⚠️ Bad weather detected! Rerouting...")
 
     try:
         routes = client.directions(
@@ -110,7 +110,7 @@ def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
             format='geojson'
         )
     except openrouteservice.exceptions.ApiError as e:
-        print(f"⚠️ Route generation failed: {e}")
+        logging.error(f"⚠️ Route generation failed: {e}")
         return None, None
 
     if routes and 'features' in routes and len(routes['features']) > 0:
@@ -123,46 +123,46 @@ def get_optimized_route(start_lat, start_lon, end_lat, end_lon):
 
         return route_map, route_coords
     else:
-        print("⚠️ Could not generate a valid route.")
+        logging.warning("⚠️ Could not generate a valid route.")
         return None, None
 
+# Quantum optimization without Qiskit
+def optimize_route_with_qaoa(route_coords):
+    num_nodes = len(route_coords)
+    Q = np.zeros((num_nodes, num_nodes))
 
-# Function to optimize route using A* Algorithm
-def optimize_route_with_astar(route_coords):
-    G = nx.Graph()
-    for i in range(len(route_coords) - 1):
+    for i in range(num_nodes - 1):
         dist = np.linalg.norm(np.array(route_coords[i]) - np.array(route_coords[i + 1]))
-        traffic_weight = np.random.uniform(1, 3)
-        G.add_edge(i, i + 1, weight=dist * traffic_weight)
+        Q[i, i + 1] = dist
 
-    start_node, end_node = 0, len(route_coords) - 1
-    shortest_path = nx.astar_path(G, source=start_node, target=end_node, weight='weight')
-    return [route_coords[i] for i in shortest_path]
+    # Solve QUBO using D-Wave's Leap Hybrid Solver
+    sampler = LeapHybridSampler()
+    response = sampler.sample_qubo(Q)
+    best_route = [route_coords[i] for i in response.first.sample if response.first.sample[i] == 1]
 
+    return best_route if best_route else route_coords  # Fallback to original route if QAOA fails
 
 # Main function
 def main():
-    print("🚀 Welcome to MiniMap")
+    logging.info("🚀 Welcome to MiniMap")
 
-    use_gps = input("Do you want to use GPS location? (Y/N): ").strip().lower()
+    use_gps = input("Use GPS? (Y/N): ").strip().lower()
     if use_gps == 'y':
         location = get_gps_location()
         if location:
             start_lat, start_lon = location
-            print(f"📍 Using GPS location: {start_lat}, {start_lon}")
         else:
-            start_lat, start_lon = get_user_city_input("Enter starting city or address: ")
+            start_lat, start_lon = get_user_city_input("Enter start city: ")
     else:
-        start_lat, start_lon = get_user_city_input("Enter starting city or address: ")
+        start_lat, start_lon = get_user_city_input("Enter start city: ")
 
-    end_lat, end_lon = get_user_city_input("Enter destination city or address: ")
+    end_lat, end_lon = get_user_city_input("Enter destination: ")
 
     route_map, route_coords = get_optimized_route(start_lat, start_lon, end_lat, end_lon)
     if route_map:
-        optimized_coords = optimize_route_with_astar(route_coords)
+        optimized_coords = optimize_route_with_qaoa(route_coords)
         route_map.save("route_map.html")
-        print("✅ Route saved as 'route_map.html'. Open in a browser to view.")
-
+        logging.info("✅ Route saved as 'route_map.html'.")
 
 if __name__ == "__main__":
     main()
