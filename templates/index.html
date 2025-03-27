@@ -40,8 +40,8 @@
             event.preventDefault();
 
             let useGPS = document.getElementById("useGPS").checked;
-            let startLocation = document.getElementById("startLocation").value;
-            let endLocation = document.getElementById("endLocation").value;
+            let startLocation = document.getElementById("startLocation").value.trim();
+            let endLocation = document.getElementById("endLocation").value.trim();
             let model = document.getElementById("modelSelection").value;
 
             if (useGPS) {
@@ -49,30 +49,50 @@
                     .then(response => response.json())
                     .then(data => {
                         if (data.lat && data.lon) {
-                            startLocation = `${data.lat},${data.lon}`;
+                            sendRouteRequest(data.lat, data.lon, endLocation, model);
+                        } else {
+                            alert("⚠️ GPS failed. Please enter the start location manually.");
                         }
-                        sendRouteRequest(startLocation, endLocation, model);
+                    })
+                    .catch(error => {
+                        console.error("GPS Error:", error);
+                        alert("⚠️ GPS retrieval failed. Please enter the start location manually.");
                     });
             } else {
+                if (!startLocation || !endLocation) {
+                    alert("⚠️ Please enter both start and end locations.");
+                    return;
+                }
                 sendRouteRequest(startLocation, endLocation, model);
             }
         });
 
         function sendRouteRequest(start, end, model) {
+            let startCoords = start.includes(",") ? start.split(",") : [start, null];
+            let endCoords = end.includes(",") ? end.split(",") : [end, null];
+
             fetch("/route", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ start_lat: start.split(',')[0], start_lon: start.split(',')[1], 
-                                       end_lat: end.split(',')[0], end_lon: end.split(',')[1], 
-                                       model: model })
+                body: JSON.stringify({
+                    start_lat: startCoords[0], 
+                    start_lon: startCoords[1] || "", 
+                    end_lat: endCoords[0], 
+                    end_lon: endCoords[1] || "", 
+                    model: model
+                })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.map_url) {
                     document.getElementById("mapFrame").src = data.map_url;
                 } else {
-                    alert("Error generating route");
+                    alert("❌ Error generating route");
                 }
+            })
+            .catch(error => {
+                console.error("Route Request Error:", error);
+                alert("❌ Failed to fetch route.");
             });
         }
     </script>
